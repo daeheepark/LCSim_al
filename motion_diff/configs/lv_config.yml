@@ -1,20 +1,20 @@
 title: "motion-diff@zyh"
 seed: 42
-version: "mvel_sigma_0.1_lr_one-cycle_data_all"
+exp_name: "mvel_sigma_0.1_lr_one-cycle_data_all"
 
 trainer:
   accelerator: "gpu"
   devices: [0, 1, 2, 3, 4, 5, 6, 7]
   max_epochs: 200
   val_interval: 1
-  ckpt_path: None
+  ckpt_path: null
 
 dataset:
   name: "womd" # womd, argoverse2
-  data_dir: "/mnt/us09/MLInfraOutputs/users/daehpark/LCSim/preprocessed/"
+  data_dir: "/workspace/preprocessed/"
   batch_size:
-    train: 64
-    val: 16
+    train: 8
+    val: 8
   data_len:
     train: null
     val: null

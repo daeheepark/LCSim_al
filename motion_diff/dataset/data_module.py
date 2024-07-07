@@ -18,10 +18,10 @@ class DataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         self.train_dataset = WaymoMotionDataset(
-            root=self.data_dir, split="train", data_len=self.data_len["train"]
+            root=self.data_dir, split="training", data_len=self.data_len["train"]
         )
         self.val_dataset = WaymoMotionDataset(
-            root=self.data_dir, split="val", data_len=self.data_len["val"]
+            root=self.data_dir, split="validation", data_len=self.data_len["val"]
         )
 
     def train_dataloader(self):

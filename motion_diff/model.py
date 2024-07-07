@@ -116,6 +116,7 @@ class MotionDiff(pl.LightningModule):
         )
         return loss
 
+    @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         scene_enc = self.agent_encoder(batch, self.map_encoder(batch))
         sample = self.sampling(data=batch, scene_enc=scene_enc, show_progress=False)
@@ -188,6 +189,7 @@ class MotionDiff(pl.LightningModule):
         #     batch_size=batch_size,
         # )
 
+    @torch.no_grad()
     def validation(self, batch, batch_idx=0, use_real_data=False, guide_fn=None):
         xy = batch["agent"]["xyz"][:, self.num_historical_steps :, :2]
         dynamic_mask = (

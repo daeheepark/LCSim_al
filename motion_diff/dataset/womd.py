@@ -19,9 +19,9 @@ class WaymoMotionDataset(Dataset):
         data_len: Optional[int] = None,
     ):
         super(WaymoMotionDataset, self).__init__(root, transform)
-        if not split in ["train", "val", "test"]:
+        if not split in ["training", "validation", "testing"]:
             raise ValueError(
-                f"split should be one of 'train', 'val', 'test', but got {split}"
+                f"split should be one of 'training', 'validation', 'testing', but got {split}"
             )
         h5path = Path(root) / f"{split}.h5"
         self.h5file = h5py.File(h5path, "r")
