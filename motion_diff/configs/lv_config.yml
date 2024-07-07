@@ -4,21 +4,21 @@ version: "mvel_sigma_0.1_lr_one-cycle_data_all"
 
 trainer:
   accelerator: "gpu"
-  devices: [0, 1, 2, 3]
+  devices: [0, 1, 2, 3, 4, 5, 6, 7]
   max_epochs: 200
   val_interval: 1
   ckpt_path: None
 
 dataset:
   name: "womd" # womd, argoverse2
-  data_dir: "path/to/data"
+  data_dir: "/mnt/us09/MLInfraOutputs/users/daehpark/LCSim/preprocessed/"
   batch_size:
-    train: 4
-    val: 8
+    train: 64
+    val: 16
   data_len:
     train: null
     val: null
-  num_workers: 8
+  num_workers: 128
   pin_memory: False
 
 model:
@@ -33,7 +33,7 @@ model:
   lr: 0.0005
   lr_scheduler: "OneCycleLR" # CosineAnnealingLR, OneCycleLR
   T_max: 200
-  pca_path: "/path/to/pca.pkl"
+  pca_path: "/workspace/prediction-intern/LCSim/motion_diff/scripts/pca.pkl"
   map_encoder:
     num_pl_types: 20
     polyline:

@@ -1,7 +1,7 @@
 import sys
 from argparse import ArgumentParser
-
-sys.path.append("../../")
+from pathlib import Path
+sys.path.append(str(Path(__file__).parents[2]))
 
 import pytorch_lightning as pl
 import setproctitle
@@ -19,7 +19,8 @@ def parse_args():
     parser = ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--save", type=str, required=True)
-    return parser.parse_args()
+    args = parser.parse_args()
+    return args
 
 
 def main():
