@@ -23,7 +23,8 @@ def parse_args():
     parser.add_argument("--save", type=str, required=True)
     parser.add_argument("--exp_name", type=str, required=True)
     parser.add_argument("--logger", type=str, default='none', choices=['none', 'qualcomm', 'wandb', 'tensorboard'])
-    args = parser.parse_args()
+    # args = parser.parse_args()
+    args = parser.parse_args('--config motion_diff/configs/vi_config_pca.yml --save tmp --exp_name debug --logger none'.split(' '))
     return args
 
 
