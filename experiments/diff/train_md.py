@@ -23,8 +23,11 @@ def parse_args():
     parser.add_argument("--save", type=str, required=True)
     parser.add_argument("--exp_name", type=str, required=True)
     parser.add_argument("--logger", type=str, default='none', choices=['none', 'qualcomm', 'wandb', 'tensorboard'])
+    parser.add_argument("--viz", action='store_true')
+    parser.add_argument("--viz_interv", type=int, default=100)
     # args = parser.parse_args()
-    args = parser.parse_args('--config motion_diff/configs/vi_config_pca.yml --save tmp --exp_name debug --logger none'.split(' '))
+    # args = parser.parse_args('--config motion_diff/configs/vi_config_pca.yml --save tmp --exp_name debug --logger none'.split(' '))
+    args = parser.parse_args('--config motion_diff/configs/vi_config_whole.yml --save tmp --exp_name debug --logger tensorboard --viz'.split(' '))
     return args
 
 
@@ -41,6 +44,8 @@ def main():
     datamodule = DataModule(cfg)
     lr_monitor = LearningRateMonitor(logging_interval="epoch")
     model_checkpoint = ModelCheckpoint(monitor='val_overlap_rate', save_top_k=10, mode='min')
+    model.viz = args.viz
+    model.viz_interv = args.viz_interv
 
     if args.logger == 'qualcomm':
         import wandb
@@ -73,6 +78,7 @@ def main():
         check_val_every_n_epoch=cfg["trainer"]["val_interval"],
     )
     trainer.fit(model, datamodule, ckpt_path=cfg["trainer"]["ckpt_path"])
+    # trainer.validate(model, datamodule, ckpt_path=cfg["trainer"]["ckpt_path"])
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ logs/
 /results
 preprocessed
 tmp*
+checkpoints
 
 # from: https://github.com/github/gitignore/blob/master/Python.gitignore
 # Byte-compiled / optimized / DLL files

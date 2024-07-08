@@ -20,6 +20,7 @@ dataset:
     val: null
   num_workers: 40
   pin_memory: False
+  only_fut: True
 
 model:
   target: "pca" # module_vel, pca, post_vel

@@ -45,11 +45,17 @@ class DiffDecoder(nn.Module):
         input_dim_r_a2m = 3
         input_dim_r_m2m = 3
 
+        if cfg['dataset']['only_fut']:
+            self.num_predict_steps = self.num_future_steps
+        else:
+            self.num_predict_steps = self.num_historical_steps + self.num_future_steps
+
         in_dim = output_dim = (
             self.pca_dim
             if self.pca_dim is not None and self.target == "pca"
-            else self.num_future_steps * (self.input_dim + self.output_head)
+            else self.num_predict_steps * (self.input_dim + self.output_head)
         )
+
         self.mlp_in = MLPLayer(
             input_dim=in_dim,
             hidden_dim=self.hidden_dim,
@@ -157,7 +163,7 @@ class DiffDecoder(nn.Module):
         else:
             m = self.mlp_in(
                 noised_gt.view(
-                    -1, self.num_future_steps * (self.input_dim + self.output_head)
+                    -1, self.num_predict_steps * (self.input_dim + self.output_head)
                 )
             )  # num_nodes, hidden_dim
         m = m + noise_emb
@@ -307,5 +313,5 @@ class DiffDecoder(nn.Module):
         # output
         out = torch.cat(out, dim=-1)
         if self.target != "pca":
-            out = out.view(-1, self.num_future_steps, self.input_dim + self.output_head)
+            out = out.view(-1, self.num_predict_steps, self.input_dim + self.output_head)
         return out

@@ -12,11 +12,15 @@ from sklearn.decomposition import PCA
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
+from dataset.utils import TargetBuilder
 
 def parse_args():
     parser = argparse.ArgumentParser("pca-para-gen")
     parser.add_argument(
         "--dataset", dest="dataset", type=str, default="", help="dataset path"
+    )
+    parser.add_argument(
+        "--root", dest="root", type=str, required=True, help="dataset root"
     )
     parser.add_argument(
         "--num_components",
@@ -25,6 +29,8 @@ def parse_args():
         default=10,
         help="number of components",
     )
+    parser.add_argument(
+        "--only_fut", action='store_true')
     return parser.parse_args()
 
 
@@ -32,9 +38,10 @@ def main():
     args = parse_args()
     if args.dataset == "":
         dataset = WaymoMotionDataset(
-            root="/path/to/waymo_motion",
-            split="train",
+            root=args.root,
+            split="training",
             data_len=50000,
+            transform=TargetBuilder(only_fut=args.only_fut)
         )
         loader = DataLoader(
             dataset,
@@ -47,8 +54,13 @@ def main():
         bar = tqdm(total=len(loader), desc="pca data collection", dynamic_ncols=True)
         for data in loader:
             target = data["agent"]["target"]
-            mask = data["agent"]["valid"][:, 10:].squeeze(-1).all(dim=-1)
-            target = target[mask][..., :2].reshape(-1, 160)
+            if args.only_fut:
+                mask = data["agent"]["valid"][:, 10:].squeeze(-1).all(dim=-1)
+                target = target[mask][..., :2].reshape(-1, 160)
+            else:
+                mask = data["agent"]["valid"].squeeze(-1).all(dim=-1)
+                target = target[mask][..., :2].reshape(-1, 182)
+            
             pca_fit_data = torch.cat([pca_fit_data, target], dim=0)
             bar.update(1)
         bar.close()
@@ -65,7 +77,7 @@ def main():
     print(f"explained_variance_ratio_: {pca.explained_variance_ratio_}")
     print(f"explained_variance_: {pca.explained_variance_}")
     # save pca
-    with open("gen/pca.pkl", "wb") as f:
+    with open(f"pca_onlyfut_{args.only_fut}.pkl", "wb") as f:
         pickle.dump(pca, f)
 
 

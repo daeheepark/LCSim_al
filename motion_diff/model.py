@@ -4,6 +4,8 @@ import inspect
 import pickle
 from typing import Dict, List, Optional, Tuple
 
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -21,6 +23,11 @@ from .metrics import (
 )
 from .modules import AgentEncoder, DiffDecoder, MapEncoder
 from .modules.layers.pca import PCA
+
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parents[1]))
+import utils.vis
 
 P_MEAN = -1.2
 P_STD = 1.2
@@ -54,6 +61,10 @@ class MotionDiff(pl.LightningModule):
         self.agent_encoder = AgentEncoder(cfg)
         self.map_encoder = MapEncoder(cfg)
         self.diff_decoder = DiffDecoder(cfg)
+        if cfg['dataset']['only_fut']:
+            self.num_predict_steps = self.num_future_steps
+        else:
+            self.num_predict_steps = self.num_historical_steps + self.num_future_steps
 
     def forward(
         self, data: HeteroData, noised_gt: torch.Tensor, noise_label: torch.Tensor
@@ -141,7 +152,7 @@ class MotionDiff(pl.LightningModule):
         lw = (
             batch["agent"]["shape"][:, self.num_future_steps, :2]
             .unsqueeze(1)
-            .repeat(1, self.num_future_steps, 1)
+            .repeat(1, self.num_predict_steps, 1)
         )
         traj = torch.cat([gen_xy, lw, gen_heading.unsqueeze(-1)], dim=-1)
 
@@ -188,6 +199,8 @@ class MotionDiff(pl.LightningModule):
         #     sync_dist=True,
         #     batch_size=batch_size,
         # )
+        if self.viz and (batch_idx % self.viz_interv == 0):
+            self.visualize(batch, traj, mask)
 
     @torch.no_grad()
     def validation(self, batch, batch_idx=0, use_real_data=False, guide_fn=None):
@@ -201,7 +214,7 @@ class MotionDiff(pl.LightningModule):
         lw = (
             batch["agent"]["shape"][:, self.num_future_steps, :2]
             .unsqueeze(1)
-            .repeat(1, self.num_future_steps, 1)
+            .repeat(1, self.num_predict_steps, 1)
         )
         pre_mask = (
             batch["agent"]["valid"][:, self.num_historical_steps - 1 :]
@@ -339,7 +352,7 @@ class MotionDiff(pl.LightningModule):
             )
         else:
             latent = torch.randn(
-                (data["agent"]["num_nodes"], self.num_future_steps, output_dim),
+                (data["agent"]["num_nodes"], self.num_predict_steps, output_dim),
                 device=device,
             )
         # scene encoding
@@ -445,7 +458,7 @@ class MotionDiff(pl.LightningModule):
             gt = torch.cat((traj[:, :1], traj[:, 1:] - traj[:, :-1]), dim=1)
         elif self.target == "pca":
             traj = data["agent"]["target"][..., : self.input_dim]
-            traj = traj.reshape(-1, self.num_future_steps * self.input_dim)
+            traj = traj.reshape(-1, self.num_predict_steps * self.input_dim)
             gt = self.pca(traj)
         elif self.target == "module_vel":
             traj = data["agent"]["target"][..., : self.input_dim]
@@ -488,7 +501,7 @@ class MotionDiff(pl.LightningModule):
         elif self.target == "pca":
             a_center_traj = self.pca.forward(
                 sample.reshape(sample.shape[0], -1), inverse=True
-            ).reshape(-1, self.num_future_steps, 2)
+            ).reshape(-1, self.num_predict_steps, 2)
         else:
             raise NotImplementedError
         # post pca
@@ -507,3 +520,77 @@ class MotionDiff(pl.LightningModule):
         vel[:, :-1, :] = (motion_vector[:, :-1] + motion_vector[:, 1:]) / 2 / 0.1
         vel[:, -1, :] = motion_vector[:, -1] / 0.1
         return traj, heading, vel
+
+    def visualize(self, batch, traj, mask):
+        batch_size = batch.num_graphs if isinstance(batch, Batch) else 1
+        
+        
+        # visualize per batch
+        for bi in range(batch_size):
+            fig, ax = plt.subplots(figsize=(12,12))
+
+            agent_batch_mask = batch['agent']['batch'] == bi
+
+            roadgraph_points_batch_mask = batch['roadgraph_points']['batch'] == bi
+            roadgraph_batch_mask = batch['roadgraph']['batch'] == bi
+
+            agent_gt = batch['agent']['xyz'][agent_batch_mask].detach().cpu()
+            agent_gt_mask = batch['agent']['valid'][agent_batch_mask].detach().cpu()
+            if True: # only show agent what exist on current time
+                agent_gt_mask = agent_gt_mask * agent_gt_mask[:,self.num_historical_steps-1].unsqueeze(1)
+            agent_pred = traj[agent_batch_mask].detach().cpu()
+            agent_gt_hist, agent_gt_fut = agent_gt[:, :self.num_historical_steps], agent_gt[:, self.num_historical_steps:]
+            agent_heading = batch['agent']['heading'][agent_batch_mask].detach().cpu()
+            agent_shape = batch['agent']['shape'][agent_batch_mask].detach().cpu()
+
+            roadgraph_points = batch['roadgraph_points']['xyz'][roadgraph_points_batch_mask].detach().cpu()
+            roadgraph_points_type = batch['roadgraph_points']['type'][roadgraph_points_batch_mask].detach().cpu()
+            roadgraph_points_ids = batch['roadgraph_points']['ids'][roadgraph_points_batch_mask].detach().cpu()
+            if True: # only show boundary
+                rgmask = roadgraph_points_type == 15
+                roadgraph_points = roadgraph_points[rgmask]
+                roadgraph_points_ids = roadgraph_points_ids[rgmask]
+            
+            # roadgraph = batch['roadgraph']['poly_points'][roadgraph_batch_mask].detach().cpu()
+            # roadgraph_mask = batch['roadgraph']['poly_points_mask'][roadgraph_batch_mask].detach().cpu()
+
+            # mask_batch = mask[agent_batch_mask].detach().cpu()
+            # agent_gt = agent_gt[mask_batch]
+
+            assert agent_gt.size(0) == agent_pred.size(0)
+            for ai in range(agent_gt.size(0)):
+                agent_cur_pos = agent_gt[ai, self.num_historical_steps-1, :2]
+                heading = agent_heading[ai, self.num_historical_steps-1, :2]
+                shape = agent_shape[ai, self.num_historical_steps-1, :2]
+                utils.vis._plot_actor_bounding_box(ax, agent_cur_pos, heading, utils.vis._DEFAULT_ACTOR_COLOR, shape)
+
+                agent_gt_fut_mask = agent_gt_mask[:,self.num_historical_steps:].squeeze(-1)
+                agent_gt_masked = agent_gt_fut[ai][agent_gt_fut_mask[ai]]
+                if agent_gt_masked.size(0) > 0: 
+                    utils.vis._scatter_polylines([agent_gt_masked.numpy()],cmap="spring",linewidth=6,reverse=True,arrow=True,)
+
+                agent_pred_masked = agent_pred[ai][agent_gt_fut_mask[ai]]
+                if agent_pred_masked.size(0) > 0: 
+                    utils.vis._scatter_polylines([agent_pred_masked.numpy()],ax,color="blue",grad_color=False,alpha=1.0,linewidth=2,zorder=1000,)
+
+            roadgraph_points_unique_ids = torch.unique(roadgraph_points_ids)
+            for li in roadgraph_points_unique_ids:
+                roadgraph_points_ = roadgraph_points[roadgraph_points_ids==li]
+                utils.vis._plot_polylines([roadgraph_points_[:,:2]], line_width=2.0, color="#000000", alpha=0.2, style="--")
+                utils.vis._plot_polylines([roadgraph_points_[:,:2]],line_width=3,color="gray",endpoint=False,zorder=-100)
+
+            plt.axis("equal")
+            center_points = agent_gt[:, self.num_historical_steps-1][batch['global_attrs']['sdc_index'][bi]].detach().cpu()
+            plt.xlim([center_points[0]-utils.vis._PLOT_BOUNDS_BUFFER_W, center_points[0]+utils.vis._PLOT_BOUNDS_BUFFER_W])
+            plt.ylim([center_points[1]-utils.vis._PLOT_BOUNDS_BUFFER_H, center_points[1]+utils.vis._PLOT_BOUNDS_BUFFER_H])
+            plt.tight_layout()
+            scenario_id = batch['global_attrs']['scenario_id'][bi]
+            plt.savefig(f'{self.logger.log_dir}/{scenario_id}.png')
+
+            # fig.canvas.draw()
+            # image = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+            # image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            # self.logger.log_image(f'viz/scene_id:{scenario_id}', images=[image], step=self.global_step)
+
+            plt.close()
+            plt.clf()

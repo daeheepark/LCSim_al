@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
 from .womd import WaymoMotionDataset
-
+from .utils import TargetBuilder
 
 class DataModule(pl.LightningDataModule):
     def __init__(self, cfg) -> None:
@@ -15,13 +15,14 @@ class DataModule(pl.LightningDataModule):
         self.num_workers = self.cfg["num_workers"]
         self.pin_memory = self.cfg["pin_memory"]
         self.data_len = self.cfg["data_len"]
+        self.only_fut = self.cfg["only_fut"]
 
     def setup(self, stage: Optional[str] = None):
         self.train_dataset = WaymoMotionDataset(
-            root=self.data_dir, split="training", data_len=self.data_len["train"]
+            root=self.data_dir, transform=TargetBuilder(only_fut=self.only_fut), split="training", data_len=self.data_len["train"]
         )
         self.val_dataset = WaymoMotionDataset(
-            root=self.data_dir, split="validation", data_len=self.data_len["val"]
+            root=self.data_dir, transform=TargetBuilder(only_fut=self.only_fut), split="validation", data_len=self.data_len["val"]
         )
 
     def train_dataloader(self):

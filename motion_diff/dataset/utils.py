@@ -18,9 +18,11 @@ class TargetBuilder(BaseTransform):
         self,
         num_historical_steps: int = 11,
         num_future_steps: int = 80,
+        only_fut: bool = True,
     ) -> None:
         self.num_historical_steps = num_historical_steps
         self.num_future_steps = num_future_steps
+        self.only_fut = only_fut
 
     def __call__(self, data: HeteroData) -> HeteroData:
         assert (
@@ -37,20 +39,36 @@ class TargetBuilder(BaseTransform):
         rot_mat[:, 0, 1] = -sin
         rot_mat[:, 1, 0] = sin
         rot_mat[:, 1, 1] = cos
-        data["agent"]["target"] = origin.new_zeros(num_nodes, self.num_future_steps, 4)
-        data["agent"]["target"][..., :2] = torch.bmm(
-            data["agent"]["xyz"][:, self.num_historical_steps :, :2]
-            - origin[:, :2].unsqueeze(1),
-            rot_mat,
-        )
-        if data["agent"]["xyz"].size(2) == 3:
-            data["agent"]["target"][..., 2] = data["agent"]["xyz"][
-                :, self.num_historical_steps :, 2
-            ] - origin[:, 2].unsqueeze(-1)
-        data["agent"]["target"][..., 3] = wrap_angle(
-            data["agent"]["heading"][:, self.num_historical_steps :].squeeze(-1)
-            - theta[:, None],
-        )
+        if self.only_fut:
+            data["agent"]["target"] = origin.new_zeros(num_nodes, self.num_future_steps, 4)
+            data["agent"]["target"][..., :2] = torch.bmm(
+                data["agent"]["xyz"][:, self.num_historical_steps :, :2]
+                - origin[:, :2].unsqueeze(1),
+                rot_mat,
+            )
+            if data["agent"]["xyz"].size(2) == 3:
+                data["agent"]["target"][..., 2] = data["agent"]["xyz"][
+                    :, self.num_historical_steps :, 2
+                ] - origin[:, 2].unsqueeze(-1)
+            data["agent"]["target"][..., 3] = wrap_angle(
+                data["agent"]["heading"][:, self.num_historical_steps :].squeeze(-1)
+                - theta[:, None],
+            )
+        else:
+            data["agent"]["target"] = origin.new_zeros(num_nodes, self.num_historical_steps+self.num_future_steps, 4)
+            data["agent"]["target"][..., :2] = torch.bmm(
+                data["agent"]["xyz"][:, :, :2]
+                - origin[:, :2].unsqueeze(1),
+                rot_mat,
+            )
+            if data["agent"]["xyz"].size(2) == 3:
+                data["agent"]["target"][..., 2] = data["agent"]["xyz"][
+                    :, :, 2
+                ] - origin[:, 2].unsqueeze(-1)
+            data["agent"]["target"][..., 3] = wrap_angle(
+                data["agent"]["heading"][:, :].squeeze(-1)
+                - theta[:, None],
+            )
         return data
 
 
