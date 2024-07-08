@@ -11,6 +11,7 @@ import yaml
 
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.strategies import DDPStrategy
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from motion_diff.dataset.data_module import DataModule
 from motion_diff.model import MotionDiff
@@ -38,7 +39,7 @@ def main():
     model = MotionDiff(cfg)
     datamodule = DataModule(cfg)
     lr_monitor = LearningRateMonitor(logging_interval="epoch")
-    
+    model_checkpoint = ModelCheckpoint(monitor='val_overlap_rate', save_top_k=10, mode='min')
 
     if args.logger == 'qualcomm':
         import wandb
@@ -66,7 +67,7 @@ def main():
         accelerator=cfg["trainer"]["accelerator"],
         devices=cfg["trainer"]["devices"],
         strategy=DDPStrategy(find_unused_parameters=True, gradient_as_bucket_view=True),
-        callbacks=[lr_monitor],
+        callbacks=[lr_monitor, model_checkpoint],
         max_epochs=cfg["trainer"]["max_epochs"],
         check_val_every_n_epoch=cfg["trainer"]["val_interval"],
     )
