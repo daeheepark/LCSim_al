@@ -78,7 +78,7 @@ class MotionDiff(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         pre_mask = (
-            batch["agent"]["valid"][:, self.num_historical_steps - 1 :]
+            batch["agent"]["valid"][:, -self.num_predict_steps:]
             .squeeze(-1)
             .all(dim=-1)
         )
@@ -134,11 +134,11 @@ class MotionDiff(pl.LightningModule):
         scene_enc = self.agent_encoder(batch, self.map_encoder(batch))
         sample = self.sampling(data=batch, scene_enc=scene_enc, show_progress=False)
         pre_mask = (
-            batch["agent"]["valid"][:, self.num_historical_steps - 1 :]
+            batch["agent"]["valid"][:, -self.num_predict_steps:]
             .squeeze(-1)
             .all(dim=-1)
         )
-        xy = batch["agent"]["xyz"][:, self.num_historical_steps :, :2]
+        xy = batch["agent"]["xyz"][:, -self.num_predict_steps:, :2]
         dynamic_mask = (
             torch.abs(torch.max(xy, dim=1)[0] - torch.min(xy, dim=1)[0]).norm(
                 dim=-1, p=2
@@ -202,11 +202,11 @@ class MotionDiff(pl.LightningModule):
         #     batch_size=batch_size,
         # )
         if self.viz and (batch_idx % self.viz_interv == 0):
-            self.visualize(batch, traj, mask)
+            self.visualize(batch, traj, dynamic_mask)
 
     @torch.no_grad()
     def validation(self, batch, batch_idx=0, use_real_data=False, guide_fn=None):
-        xy = batch["agent"]["xyz"][:, self.num_historical_steps :, :2]
+        xy = batch["agent"]["xyz"][:, -self.num_predict_steps:, :2]
         dynamic_mask = (
             torch.abs(torch.max(xy, dim=1)[0] - torch.min(xy, dim=1)[0]).norm(
                 dim=-1, p=2
@@ -219,7 +219,7 @@ class MotionDiff(pl.LightningModule):
             .repeat(1, self.num_predict_steps, 1)
         )
         pre_mask = (
-            batch["agent"]["valid"][:, self.num_historical_steps - 1 :]
+            batch["agent"]["valid"][:, -self.num_predict_steps:]
             .squeeze(-1)
             .all(dim=-1)
         )
@@ -227,7 +227,7 @@ class MotionDiff(pl.LightningModule):
 
         if use_real_data:
             gen_xy = xy
-            gen_heading = batch["agent"]["heading"][:, self.num_historical_steps :, :]
+            gen_heading = batch["agent"]["heading"][:, -self.num_predict_steps:, :]
             traj = torch.cat([gen_xy, lw, gen_heading], dim=-1)
             mask = pre_mask
         else:
@@ -523,7 +523,7 @@ class MotionDiff(pl.LightningModule):
         vel[:, -1, :] = motion_vector[:, -1] / 0.1
         return traj, heading, vel
 
-    def visualize(self, batch, traj, mask):
+    def visualize(self, batch, traj, dynamic_mask):
         batch_size = batch.num_graphs if isinstance(batch, Batch) else 1
         
         
@@ -556,7 +556,7 @@ class MotionDiff(pl.LightningModule):
             # roadgraph = batch['roadgraph']['poly_points'][roadgraph_batch_mask].detach().cpu()
             # roadgraph_mask = batch['roadgraph']['poly_points_mask'][roadgraph_batch_mask].detach().cpu()
 
-            # mask_batch = mask[agent_batch_mask].detach().cpu()
+            dynamic_mask_batch = dynamic_mask[agent_batch_mask].detach().cpu()
             # agent_gt = agent_gt[mask_batch]
 
             assert agent_gt.size(0) == agent_pred.size(0)
@@ -568,7 +568,7 @@ class MotionDiff(pl.LightningModule):
 
                 agent_gt_mask_ = agent_gt_mask[:,-self.num_predict_steps:].squeeze(-1)
                 agent_gt_masked = agent_gt[ai,-self.num_predict_steps:][agent_gt_mask_[ai]]
-                if agent_gt_masked.size(0) > 0: 
+                if agent_gt_masked.size(0) > 0 and dynamic_mask_batch[ai]: 
                     utils.vis._scatter_polylines([agent_gt_masked.numpy()],cmap="spring",linewidth=6,reverse=True,arrow=True,)
 
                 agent_pred_masked = agent_pred[ai][agent_gt_mask_[ai]]
