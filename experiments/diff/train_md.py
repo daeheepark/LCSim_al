@@ -3,6 +3,8 @@ from argparse import ArgumentParser
 from pathlib import Path
 sys.path.append(str(Path(__file__).parents[2]))
 
+import multiprocessing
+multiprocessing.set_start_method('fork')
 import torch
 torch.multiprocessing.set_sharing_strategy('file_system')
 import pytorch_lightning as pl
