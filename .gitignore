@@ -7,6 +7,7 @@ logs/
 preprocessed
 tmp*
 checkpoints
+**/pca_fit_data*
 
 # from: https://github.com/github/gitignore/blob/master/Python.gitignore
 # Byte-compiled / optimized / DLL files

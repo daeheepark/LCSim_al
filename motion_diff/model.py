@@ -539,7 +539,7 @@ class MotionDiff(pl.LightningModule):
             if True: # only show agent what exist on current time
                 agent_gt_mask = agent_gt_mask * agent_gt_mask[:,self.num_historical_steps-1].unsqueeze(1)
             agent_pred = traj[agent_batch_mask].detach().cpu()
-            agent_gt_hist, agent_gt_fut = agent_gt[:, :self.num_historical_steps], agent_gt[:, self.num_historical_steps:]
+            # agent_gt_hist, agent_gt_fut = agent_gt[:, :self.num_historical_steps], agent_gt[:, self.num_historical_steps:]
             agent_heading = batch['agent']['heading'][agent_batch_mask].detach().cpu()
             agent_shape = batch['agent']['shape'][agent_batch_mask].detach().cpu()
 
@@ -564,12 +564,12 @@ class MotionDiff(pl.LightningModule):
                 shape = agent_shape[ai, self.num_historical_steps-1, :2]
                 utils.vis._plot_actor_bounding_box(ax, agent_cur_pos, heading, utils.vis._DEFAULT_ACTOR_COLOR, shape)
 
-                agent_gt_fut_mask = agent_gt_mask[:,self.num_historical_steps:].squeeze(-1)
-                agent_gt_masked = agent_gt_fut[ai][agent_gt_fut_mask[ai]]
+                agent_gt_mask_ = agent_gt_mask[:,-self.num_predict_steps:].squeeze(-1)
+                agent_gt_masked = agent_gt[ai,-self.num_predict_steps:][agent_gt_mask_[ai]]
                 if agent_gt_masked.size(0) > 0: 
                     utils.vis._scatter_polylines([agent_gt_masked.numpy()],cmap="spring",linewidth=6,reverse=True,arrow=True,)
 
-                agent_pred_masked = agent_pred[ai][agent_gt_fut_mask[ai]]
+                agent_pred_masked = agent_pred[ai][agent_gt_mask_[ai]]
                 if agent_pred_masked.size(0) > 0: 
                     utils.vis._scatter_polylines([agent_pred_masked.numpy()],ax,color="blue",grad_color=False,alpha=1.0,linewidth=2,zorder=1000,)
 
@@ -585,7 +585,7 @@ class MotionDiff(pl.LightningModule):
             plt.ylim([center_points[1]-utils.vis._PLOT_BOUNDS_BUFFER_H, center_points[1]+utils.vis._PLOT_BOUNDS_BUFFER_H])
             plt.tight_layout()
             scenario_id = batch['global_attrs']['scenario_id'][bi]
-            plt.savefig(f'{self.logger.log_dir}/{scenario_id}.png')
+            plt.savefig(f'{self.logger.log_dir}/ep{self.current_epoch}_{scenario_id}.png')
 
             # fig.canvas.draw()
             # image = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')

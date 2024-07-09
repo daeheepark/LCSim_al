@@ -65,7 +65,7 @@ def main():
             bar.update(1)
         bar.close()
         # save pca data
-        with open("gen/pca_fit_data.pkl", "wb") as f:
+        with open(f"motion_diff/scripts/pca_fit_data_onlyfut_{args.only_fut}.pkl", "wb") as f:
             pickle.dump(pca_fit_data, f)
     else:
         with open(args.dataset, "rb") as f:
@@ -77,7 +77,7 @@ def main():
     print(f"explained_variance_ratio_: {pca.explained_variance_ratio_}")
     print(f"explained_variance_: {pca.explained_variance_}")
     # save pca
-    with open(f"pca_onlyfut_{args.only_fut}.pkl", "wb") as f:
+    with open(f"motion_diff/scripts/pca_onlyfut_{args.only_fut}.pkl", "wb") as f:
         pickle.dump(pca, f)
 
 
