@@ -15,6 +15,8 @@ import tqdm
 from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR
 from torch_geometric.data import Batch, HeteroData
 
+from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
+
 from .metrics import (
     compute_lane_heading_diff,
     compute_mmd_vel,
@@ -585,12 +587,14 @@ class MotionDiff(pl.LightningModule):
             plt.ylim([center_points[1]-utils.vis._PLOT_BOUNDS_BUFFER_H, center_points[1]+utils.vis._PLOT_BOUNDS_BUFFER_H])
             plt.tight_layout()
             scenario_id = batch['global_attrs']['scenario_id'][bi]
-            plt.savefig(f'{self.logger.log_dir}/ep{self.current_epoch}_{scenario_id}.png')
 
-            # fig.canvas.draw()
-            # image = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-            # image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-            # self.logger.log_image(f'viz/scene_id:{scenario_id}', images=[image], step=self.global_step)
+            if type(self.logger) == TensorBoardLogger:
+                plt.savefig(f'{self.logger.log_dir}/ep{self.current_epoch}_{scenario_id}.png')
+            elif type(self.logger) == WandbLogger:
+                fig.canvas.draw()
+                image = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+                image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                self.logger.log_image(f'viz/scene_id:{scenario_id}', images=[image], step=self.global_step)
 
             plt.close()
             plt.clf()
