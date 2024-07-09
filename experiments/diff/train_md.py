@@ -25,9 +25,9 @@ def parse_args():
     parser.add_argument("--logger", type=str, default='none', choices=['none', 'qualcomm', 'wandb', 'tensorboard'])
     parser.add_argument("--viz", action='store_true')
     parser.add_argument("--viz_interv", type=int, default=100)
-    # args = parser.parse_args()
+    args = parser.parse_args()
     # args = parser.parse_args('--config motion_diff/configs/vi_config_pca.yml --save tmp --exp_name debug --logger none'.split(' '))
-    args = parser.parse_args('--config motion_diff/configs/vi_config_whole.yml --save tmp --exp_name debug --logger tensorboard --viz'.split(' '))
+    # args = parser.parse_args('--config motion_diff/configs/vi_config_whole.yml --save tmp --exp_name debug --logger tensorboard --viz'.split(' '))
     return args
 
 
