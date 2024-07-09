@@ -328,9 +328,8 @@ def _scatter_polylines(
         if arrow:
             point = inter_poly[-1]
             diff = inter_poly[-1] - inter_poly[-2]
-            if np.linalg.norm(diff) == 0:
-                continue
-            diff = diff / np.linalg.norm(diff)
+            if np.linalg.norm(diff) != 0:
+                diff = diff / np.linalg.norm(diff)
             if grad_color:
                 c = plt.cm.get_cmap(cmap)(0)
             else:
