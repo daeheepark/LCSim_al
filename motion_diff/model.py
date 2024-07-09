@@ -521,6 +521,7 @@ class MotionDiff(pl.LightningModule):
                 self.pca.forward(x=a_center_traj.reshape(a_center_traj.shape[0], -1)),
                 inverse=True,
             ).reshape(a_center_traj.shape)
+        a_center_traj = a_center_traj.to(torch.float32)
         
         num_modes_ = int(a_center_traj.size(0) / data["agent"]["num_nodes"])
         assert num_modes_ == a_center_traj.size(0) / data["agent"]["num_nodes"]
