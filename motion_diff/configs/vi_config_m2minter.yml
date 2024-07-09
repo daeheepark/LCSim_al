@@ -63,6 +63,6 @@ model:
     head_dim: 64
     dropout: 0.1
     pca_dim: null
-  m2m_intra: True
+  m2m_intra: False
   num_modes: 6
   post_pca: True

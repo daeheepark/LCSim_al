@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_LAUNCH_BLOCKING"]="1"
+
 import sys
 from argparse import ArgumentParser
 from pathlib import Path
@@ -29,7 +32,7 @@ def parse_args():
     parser.add_argument("--viz_interv", type=int, default=400)
     args = parser.parse_args()
     # args = parser.parse_args('--config motion_diff/configs/vi_config_pca.yml --save tmp --exp_name debug --logger none'.split(' '))
-    # args = parser.parse_args('--config motion_diff/configs/vi_config_whole.yml --save tmp --exp_name debug --logger tensorboard --viz'.split(' '))
+    # args = parser.parse_args('--config motion_diff/configs/vi_config_m2minter.yml --save tmp --exp_name debug --logger tensorboard --viz'.split(' '))
     return args
 
 

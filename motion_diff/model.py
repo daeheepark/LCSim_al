@@ -68,12 +68,16 @@ class MotionDiff(pl.LightningModule):
         else:
             self.num_predict_steps = self.num_historical_steps + self.num_future_steps
 
+        self.num_modes = cfg["model"]["num_modes"]
+        self.post_pca = cfg["model"]["post_pca"]
+
     def forward(
         self, data: HeteroData, noised_gt: torch.Tensor, noise_label: torch.Tensor
     ) -> torch.Tensor:
         map_enc = self.map_encoder(data)
         enc = self.agent_encoder(data, map_enc)
-        out = self.diff_decoder(data, enc, noised_gt, noise_label)
+        computed_edges = self.diff_decoder.compute_edges(data, enc)
+        out = self.diff_decoder(data, enc, noised_gt, noise_label, computed_edges=computed_edges)
         return out
 
     def training_step(self, batch, batch_idx):
@@ -155,13 +159,14 @@ class MotionDiff(pl.LightningModule):
             batch["agent"]["shape"][:, self.num_future_steps, :2]
             .unsqueeze(1)
             .repeat(1, self.num_predict_steps, 1)
-        )
+        ).repeat_interleave(self.num_modes,0)
         traj = torch.cat([gen_xy, lw, gen_heading.unsqueeze(-1)], dim=-1)
+        traj = traj.reshape(batch["agent"]["num_nodes"], self.num_modes, self.num_predict_steps, -1)
 
         # compute metrics
-        overlap_rate = compute_overlap_rate(batch, traj, mask)
-        offroad_rate = compute_offroad_rate(batch, traj, mask)
-        lane_heading_diff = compute_lane_heading_diff(batch, traj, mask)
+        overlap_rate = compute_overlap_rate(batch, traj[:,0], mask)
+        offroad_rate = compute_offroad_rate(batch, traj[:,0], mask)
+        lane_heading_diff = compute_lane_heading_diff(batch, traj[:,0], mask)
         # mmd_vel = compute_mmd_vel(batch, traj, mask)
 
         batch_size = batch.num_graphs if isinstance(batch, Batch) else 1
@@ -217,7 +222,7 @@ class MotionDiff(pl.LightningModule):
             batch["agent"]["shape"][:, self.num_future_steps, :2]
             .unsqueeze(1)
             .repeat(1, self.num_predict_steps, 1)
-        )
+        ).repeat_interleave(self.num_modes,0)
         pre_mask = (
             batch["agent"]["valid"][:, -self.num_predict_steps:]
             .squeeze(-1)
@@ -229,6 +234,7 @@ class MotionDiff(pl.LightningModule):
             gen_xy = xy
             gen_heading = batch["agent"]["heading"][:, -self.num_predict_steps:, :]
             traj = torch.cat([gen_xy, lw, gen_heading], dim=-1)
+            traj = traj.reshape(batch["agent"]["num_nodes"], self.num_modes, self.num_predict_steps, -1)
             mask = pre_mask
         else:
             scene_enc = self.agent_encoder(batch, self.map_encoder(batch))
@@ -239,11 +245,12 @@ class MotionDiff(pl.LightningModule):
                 batch, sample, with_heading_and_vel=True
             )
             traj = torch.cat([gen_xy, lw, gen_heading.unsqueeze(-1)], dim=-1)
+            traj = traj.reshape(batch["agent"]["num_nodes"], self.num_modes, self.num_predict_steps, -1)
             mask = pre_mask & dynamic_mask & type_mask
             # mask = pre_mask & type_mask
         # compute metrics
-        overlap_rate = compute_overlap_rate(batch, traj, mask)
-        offroad_rate = compute_offroad_rate(batch, traj, mask)
+        overlap_rate = compute_overlap_rate(batch, traj[:,0], mask)
+        offroad_rate = compute_offroad_rate(batch, traj[:,0], mask)
         # lane_heading_diff = compute_lane_heading_diff(batch, traj, mask)
         return {
             "overlap_rate": overlap_rate.item(),
@@ -349,12 +356,12 @@ class MotionDiff(pl.LightningModule):
         output_dim = self.output_dim + self.output_head
         if self.target == "pca":
             latent = torch.randn(
-                (data["agent"]["num_nodes"], self.pca_dim),
+                (data["agent"]["num_nodes"]*self.num_modes, self.pca_dim),
                 device=device,
             )
         else:
             latent = torch.randn(
-                (data["agent"]["num_nodes"], self.num_predict_steps, output_dim),
+                (data["agent"]["num_nodes"]*self.num_modes, self.num_predict_steps, output_dim),
                 device=device,
             )
         # scene encoding
@@ -363,6 +370,7 @@ class MotionDiff(pl.LightningModule):
             if scene_enc is None
             else scene_enc
         )
+        computed_edges = self.diff_decoder.compute_edges(data, scene_enc, self.num_modes)
         # denoising time steps
         step_indices = torch.arange(num_steps, dtype=torch.float64, device=device)
         t_steps = (
@@ -397,7 +405,7 @@ class MotionDiff(pl.LightningModule):
             ).sqrt() * S_noise * torch.randn_like(x_cur)
 
             # Euler step.
-            denoised = self._edm_precondition(data, x_hat, t_hat, scene_enc).to(
+            denoised = self._edm_precondition(data, x_hat, t_hat, scene_enc, computed_edges=computed_edges).to(
                 torch.float64
             )
             d_cur = (x_hat - denoised) / t_hat / eps_scaler
@@ -405,7 +413,7 @@ class MotionDiff(pl.LightningModule):
 
             # Apply 2nd order correction.
             if i < num_steps - 1:
-                denoised = self._edm_precondition(data, x_next, t_next, scene_enc).to(
+                denoised = self._edm_precondition(data, x_next, t_next, scene_enc, computed_edges=computed_edges).to(
                     torch.float64
                 )
                 d_prime = (x_next - denoised) / t_next / eps_scaler
@@ -431,6 +439,7 @@ class MotionDiff(pl.LightningModule):
         x: torch.Tensor,
         sigma: torch.Tensor,
         scene_enc: Dict[str, torch.Tensor],
+        computed_edges: Dict[str, torch.Tensor],
     ):
         sigma = (
             (
@@ -450,7 +459,7 @@ class MotionDiff(pl.LightningModule):
         c_out = sigma * self.sigma_data / (sigma**2 + self.sigma_data**2).sqrt()
         c_in = 1 / (self.sigma_data**2 + sigma**2).sqrt()
         c_noise = sigma.log() / 4
-        F_x = self.diff_decoder(data, scene_enc, x * c_in, c_noise.flatten())
+        F_x = self.diff_decoder(data, scene_enc, x * c_in, c_noise.flatten(), computed_edges=computed_edges)
         return c_skip * x + c_out * F_x
 
     def _get_training_targets(self, data: HeteroData) -> torch.Tensor:
@@ -507,15 +516,21 @@ class MotionDiff(pl.LightningModule):
         else:
             raise NotImplementedError
         # post pca
-        if not self.target == "pca":
+        if self.post_pca and not self.target == "pca":
             a_center_traj = self.pca.forward(
                 self.pca.forward(x=a_center_traj.reshape(a_center_traj.shape[0], -1)),
                 inverse=True,
             ).reshape(a_center_traj.shape)
+        
+        num_modes_ = int(a_center_traj.size(0) / data["agent"]["num_nodes"])
+        assert num_modes_ == a_center_traj.size(0) / data["agent"]["num_nodes"]
+        a_center_traj = a_center_traj.reshape(data["agent"]["num_nodes"], num_modes_*self.num_predict_steps, 2)
         traj = torch.bmm(a_center_traj, rot_mat_inv) + origin.unsqueeze(1)
         if not with_heading_and_vel:
             return traj
-        traj_xy_with_origin = torch.cat((origin.unsqueeze(1), traj), dim=1)
+        traj = traj.reshape(data["agent"]["num_nodes"]*num_modes_, self.num_predict_steps, 2) 
+        traj_xy_with_origin = torch.cat((origin.repeat_interleave(num_modes_,0).unsqueeze(1), traj), dim=1)
+
         motion_vector = traj_xy_with_origin[:, 1:] - traj_xy_with_origin[:, :-1]
         heading = torch.atan2(motion_vector[..., 1], motion_vector[..., 0])
         vel = torch.zeros_like(motion_vector)
@@ -571,9 +586,10 @@ class MotionDiff(pl.LightningModule):
                 if agent_gt_masked.size(0) > 0 and dynamic_mask_batch[ai]: 
                     utils.vis._scatter_polylines([agent_gt_masked.numpy()],cmap="spring",linewidth=6,reverse=True,arrow=True,)
 
-                agent_pred_masked = agent_pred[ai][agent_gt_mask_[ai]]
-                if agent_pred_masked.size(0) > 0: 
-                    utils.vis._scatter_polylines([agent_pred_masked.numpy()],ax,color="blue",grad_color=False,alpha=1.0,linewidth=2,zorder=1000,)
+                for k in range(agent_pred.size(1)):
+                    agent_pred_masked = agent_pred[ai,k][agent_gt_mask_[ai]]
+                    if agent_pred_masked.size(0) > 0: 
+                        utils.vis._scatter_polylines([agent_pred_masked.numpy()],ax,color="blue",grad_color=False,alpha=1.0,linewidth=2,zorder=1000,)
 
             roadgraph_points_unique_ids = torch.unique(roadgraph_points_ids)
             for li in roadgraph_points_unique_ids:

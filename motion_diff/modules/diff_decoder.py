@@ -1,4 +1,4 @@
-from typing import List, Mapping, Optional
+from typing import List, Mapping, Optional, Dict
 
 import torch
 import torch.nn as nn
@@ -39,6 +39,10 @@ class DiffDecoder(nn.Module):
         self.head_dim = self.cfg["head_dim"]
         self.dropout = self.cfg["dropout"]
         self.pca_dim = self.cfg["pca_dim"]
+
+        # experiments
+        self.m2m_intra = cfg["model"]["m2m_intra"]
+        self.num_modes = cfg["model"]["num_modes"]
 
         input_dim_r_t = 4
         input_dim_r_pl2m = 3
@@ -147,27 +151,9 @@ class DiffDecoder(nn.Module):
             ]
         )
         self.apply(weight_init)
-
-    def forward(
-        self,
-        data: HeteroData,
-        scene_enc: Mapping[str, torch.Tensor],
-        noised_gt: torch.Tensor,
-        noise_labels: torch.Tensor,
-    ):
-        noise_emb = self.noise_emb(
-            continuous_inputs=noise_labels.unsqueeze(-1), categorical_embs=None
-        )  # (num_agents, hidden_dim)
-        if self.pca_dim is not None and self.target == "pca":
-            m = self.mlp_in(noised_gt)
-        else:
-            m = self.mlp_in(
-                noised_gt.view(
-                    -1, self.num_predict_steps * (self.input_dim + self.output_head)
-                )
-            )  # num_nodes, hidden_dim
-        m = m + noise_emb
-
+    
+    def compute_edges(self, data, scene_enc, num_modes=1):
+        
         pos_m = data["agent"]["xyz"][
             :, self.num_historical_steps - 1, : self.input_dim
         ]  # (num_agents, 2)
@@ -179,10 +165,10 @@ class DiffDecoder(nn.Module):
         x_t = scene_enc["agent"].reshape(
             -1, self.hidden_dim
         )  # (num_agents * num_historical_steps, hidden_dim)
-        x_pl = scene_enc["roadgraph"]  # (num_nodes, hidden_dim)
+        x_pl = scene_enc["roadgraph"].repeat(num_modes,1)  # (num_nodes*num_modes, hidden_dim)
         x_a = scene_enc["agent"][
             :, self.num_historical_steps - 1, :
-        ]  # (num_agents, hidden_dim)
+        ].repeat(num_modes,1)  # (num_agents*num_modes, hidden_dim)
 
         mask_src = (
             data["agent"]["valid"][:, : self.num_historical_steps]
@@ -196,6 +182,8 @@ class DiffDecoder(nn.Module):
             .contiguous()
         )
         mask_dst = mask_dst.all(dim=-1, keepdim=True)
+        mask_dst_ = mask_dst.clone()
+        mask_dst = mask_dst.repeat(1, num_modes)
 
         # relation to self historical states
         pos_t = data["agent"]["xyz"][
@@ -221,6 +209,10 @@ class DiffDecoder(nn.Module):
             dim=-1,
         )
         r_t2m = self.r_t2m_emb(continuous_inputs=r_t2m, categorical_embs=None)
+        edge_index_t2m = bipartite_dense_to_sparse(
+            mask_src.unsqueeze(2) & mask_dst.unsqueeze(1)
+        )
+        r_t2m = r_t2m.repeat_interleave(repeats=num_modes, dim=0)
 
         # relation to roadgraph polyline
         pl_center_pts = data["roadgraph"]["poly_center_points"]
@@ -252,6 +244,9 @@ class DiffDecoder(nn.Module):
             dim=-1,
         )
         r_pl2m = self.r_pl2m_emb(continuous_inputs=r_pl2m, categorical_embs=None)
+        edge_index_pl2m = torch.cat([edge_index_pl2m + i * edge_index_pl2m.new_tensor(
+            [[data['roadgraph']['num_nodes']], [data['agent']['num_nodes']]]) for i in range(num_modes)], dim=1)
+        r_pl2m = r_pl2m.repeat(num_modes, 1)
 
         # relation to other agents
         edge_index_a2m = radius_graph(
@@ -278,11 +273,20 @@ class DiffDecoder(nn.Module):
             dim=-1,
         )
         r_a2m = self.r_a2m_emb(continuous_inputs=r_a2m, categorical_embs=None)
+        edge_index_a2m_ = edge_index_a2m.clone()
+        edge_index_a2m = torch.cat(
+            [edge_index_a2m + i * edge_index_a2m.new_tensor([data['agent']['num_nodes']]) for i in
+             range(num_modes)], dim=1)
+        r_a2m = r_a2m.repeat(num_modes, 1)
 
         # relation to other prediction modules
-        edge_index_m2m = dense_to_sparse(mask_dst.unsqueeze(2) & mask_dst.unsqueeze(1))[
-            0
-        ]
+        if self.m2m_intra:
+            edge_index_m2m = dense_to_sparse(mask_dst_.unsqueeze(2) & mask_dst_.unsqueeze(1))[
+                0
+            ]
+        else:
+            edge_index_m2m = edge_index_a2m_     
+
         rel_pos_m2m = pos_m[edge_index_m2m[0]] - pos_m[edge_index_m2m[1]]
         rel_head_m2m = wrap_angle(head_m[edge_index_m2m[0]] - head_m[edge_index_m2m[1]])
         r_m2m = torch.stack(
@@ -297,6 +301,47 @@ class DiffDecoder(nn.Module):
             dim=-1,
         )
         r_m2m = self.r_m2m_emb(continuous_inputs=r_m2m, categorical_embs=None)
+        edge_index_m2m = torch.cat(
+            [edge_index_m2m + i * edge_index_m2m.new_tensor([data['agent']['num_nodes']]) for i in
+             range(num_modes)], dim=1)
+        r_m2m = r_m2m.repeat(num_modes, 1)
+
+        return dict(
+            x_t=x_t, x_a=x_a, x_pl=x_pl,
+            r_t2m=r_t2m, r_pl2m=r_pl2m, r_a2m=r_a2m, r_m2m=r_m2m,
+            edge_index_t2m=edge_index_t2m, edge_index_pl2m=edge_index_pl2m, edge_index_a2m=edge_index_a2m, edge_index_m2m=edge_index_m2m
+        )
+
+    def forward(
+        self,
+        data: HeteroData,
+        scene_enc: Mapping[str, torch.Tensor],
+        noised_gt: torch.Tensor,
+        noise_labels: torch.Tensor,
+        computed_edges: Dict[str, torch.Tensor]
+    ):
+        # load pre-computed edges and nodes
+        (x_t, x_a, x_pl,
+            r_t2m, r_pl2m, r_a2m, r_m2m,
+            edge_index_t2m, edge_index_pl2m, edge_index_a2m, edge_index_m2m) = (
+                computed_edges['x_t'], computed_edges['x_a'], computed_edges['x_pl'],
+                computed_edges['r_t2m'], computed_edges['r_pl2m'], computed_edges['r_a2m'],  computed_edges['r_m2m'],
+                computed_edges['edge_index_t2m'], computed_edges['edge_index_pl2m'], computed_edges['edge_index_a2m'], computed_edges['edge_index_m2m']
+            )
+
+        # 
+        noise_emb = self.noise_emb(
+            continuous_inputs=noise_labels.unsqueeze(-1), categorical_embs=None
+        )  # (num_agents, hidden_dim)
+        if self.pca_dim is not None and self.target == "pca":
+            m = self.mlp_in(noised_gt)
+        else:
+            m = self.mlp_in(
+                noised_gt.view(
+                    -1, self.num_predict_steps * (self.input_dim + self.output_head)
+                )
+            )  # num_nodes, hidden_dim
+        m = m + noise_emb
 
         # attention layers
         out: List[Optional[torch.Tensor]] = [

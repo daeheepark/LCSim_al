@@ -7,7 +7,7 @@ trainer:
   devices: [0, 1, 2, 3, 4, 5, 6, 7]
   max_epochs: 200
   val_interval: 1
-  ckpt_path: /mnt/us09/MLInfraOutputs/users/daehpark/LCSim/results/LCSim/n079wymk/checkpoints/epoch=0-step=7610.ckpt
+  ckpt_path: 
 
 dataset:
   name: "womd" # womd, argoverse2
@@ -63,3 +63,6 @@ model:
     head_dim: 64
     dropout: 0.1
     pca_dim: null
+  m2m_intra: True
+  num_modes: 6
+  post_pca: True
