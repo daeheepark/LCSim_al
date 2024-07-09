@@ -65,4 +65,4 @@ model:
     pca_dim: null
   m2m_intra: False
   num_modes: 6
-  post_pca: True
+  post_pca: False
