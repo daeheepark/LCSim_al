@@ -4,9 +4,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parents[2]))
 
 import multiprocessing
-multiprocessing.set_start_method('fork')
+# multiprocessing.set_start_method('fork')
 import torch
-torch.multiprocessing.set_sharing_strategy('file_system')
+# torch.multiprocessing.set_sharing_strategy('file_system')
 import pytorch_lightning as pl
 import setproctitle
 import yaml
@@ -29,7 +29,7 @@ def parse_args():
     parser.add_argument("--viz_interv", type=int, default=200)
     args = parser.parse_args()
     # args = parser.parse_args('--config motion_diff/configs/vi_config_pca.yml --save tmp --exp_name debug --logger none'.split(' '))
-    # args = parser.parse_args('--config motion_diff/configs/vi_config_whole.yml --save tmp --exp_name debug --logger none --viz'.split(' '))
+    # args = parser.parse_args('--config motion_diff/configs/vi_config_whole.yml --save tmp --exp_name debug --logger tensorboard --viz'.split(' '))
     return args
 
 
